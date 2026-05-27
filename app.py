@@ -5,6 +5,8 @@ from psycopg2.extras import RealDictCursor
 import os
 
 app = Flask(__name__)
+
+# ALLOW WEBSITE ACCESS
 CORS(app)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -30,10 +32,21 @@ def create_table():
             medication_type VARCHAR(10) NOT NULL
                 CHECK (medication_type IN ('PN', 'IV')),
             antibiotics TEXT,
-            weight_kg DECIMAL(5,2),
-            infusion_rate DECIMAL(6,2),
+            weight_kg DECIMAL(10,2),
+            infusion_rate DECIMAL(10,2),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    """)
+
+    # UPDATE OLD TABLE COLUMNS
+    cur.execute("""
+        ALTER TABLE NEODOSE_V1
+        ALTER COLUMN weight_kg TYPE DECIMAL(10,2)
+    """)
+
+    cur.execute("""
+        ALTER TABLE NEODOSE_V1
+        ALTER COLUMN infusion_rate TYPE DECIMAL(10,2)
     """)
 
     conn.commit()
@@ -53,15 +66,20 @@ def home():
     })
 
 
+# =========================
 # GET ALL PATIENTS
+# WEBSITE FETCHES FROM HERE
+# =========================
 @app.route("/patients", methods=["GET"])
 def get_patients():
+
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT * FROM NEODOSE_V1
-        ORDER BY id DESC
+        SELECT *
+        FROM NEODOSE_V1
+        ORDER BY created_at DESC
     """)
 
     patients = cur.fetchall()
@@ -69,78 +87,104 @@ def get_patients():
     cur.close()
     conn.close()
 
-    return jsonify(patients)
-
-
-# ADD PATIENT
-@app.route("/patients", methods=["POST"])
-def add_patient():
-    data = request.get_json()
-
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT INTO NEODOSE_V1 (
-            patient_id,
-            medication_type,
-            antibiotics,
-            weight_kg,
-            infusion_rate
-        )
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING *
-    """, (
-        data["patient_id"],
-        data["medication_type"],
-        data["antibiotics"],
-        data["weight_kg"],
-        data["infusion_rate"]
-    ))
-
-    new_patient = cur.fetchone()
-
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return jsonify(new_patient), 201
-
-
-# DELETE PATIENT
-@app.route("/patients/<int:id>", methods=["DELETE"])
-def delete_patient(id):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        DELETE FROM NEODOSE_V1
-        WHERE id = %s
-        RETURNING *
-    """, (id,))
-
-    deleted = cur.fetchone()
-
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    if not deleted:
-        return jsonify({
-            "error": "Patient not found"
-        }), 404
-
     return jsonify({
-        "message": "Patient deleted successfully",
-        "patient": deleted
+        "success": True,
+        "count": len(patients),
+        "patients": patients
     })
 
 
+# =========================
+# GET SINGLE PATIENT
+# =========================
+@app.route("/patients/<int:id>", methods=["GET"])
+def get_single_patient(id):
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT *
+        FROM NEODOSE_V1
+        WHERE id = %s
+    """, (id,))
+
+    patient = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not patient:
+        return jsonify({
+            "success": False,
+            "message": "Patient not found"
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "patient": patient
+    })
+
+
+# =========================
+# ADD PATIENT
+# ESP32 SENDS DATA HERE
+# =========================
+@app.route("/patients", methods=["POST"])
+def add_patient():
+
+    data = request.get_json()
+
+    try:
+
+        conn = get_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO NEODOSE_V1 (
+                patient_id,
+                medication_type,
+                antibiotics,
+                weight_kg,
+                infusion_rate
+            )
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING *
+        """, (
+            data["patient_id"],
+            data["medication_type"],
+            data["antibiotics"],
+            data["weight_kg"],
+            data["infusion_rate"]
+        ))
+
+        new_patient = cur.fetchone()
+
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": "Patient added successfully",
+            "patient": new_patient
+        }), 201
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# =========================
 # UPDATE PATIENT
+# =========================
 @app.route("/patients/<int:id>", methods=["PUT"])
 def update_patient(id):
+
     data = request.get_json()
 
     conn = get_connection()
@@ -174,10 +218,50 @@ def update_patient(id):
 
     if not updated:
         return jsonify({
-            "error": "Patient not found"
+            "success": False,
+            "message": "Patient not found"
         }), 404
 
-    return jsonify(updated)
+    return jsonify({
+        "success": True,
+        "message": "Patient updated successfully",
+        "patient": updated
+    })
+
+
+# =========================
+# DELETE PATIENT
+# =========================
+@app.route("/patients/<int:id>", methods=["DELETE"])
+def delete_patient(id):
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        DELETE FROM NEODOSE_V1
+        WHERE id = %s
+        RETURNING *
+    """, (id,))
+
+    deleted = cur.fetchone()
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    if not deleted:
+        return jsonify({
+            "success": False,
+            "message": "Patient not found"
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "message": "Patient deleted successfully",
+        "patient": deleted
+    })
 
 
 # RUN SERVER
