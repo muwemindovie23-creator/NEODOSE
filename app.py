@@ -22,11 +22,12 @@ def get_connection():
 
 # CREATE TABLE
 def create_table():
+
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS NEODOSE_V1 (
+        CREATE TABLE IF NOT EXISTS neo_dose_mod (
             id SERIAL PRIMARY KEY,
             patient_id VARCHAR(50) NOT NULL,
             medication_type VARCHAR(10) NOT NULL
@@ -38,18 +39,19 @@ def create_table():
         )
     """)
 
-    # UPDATE OLD TABLE COLUMNS
+    # ENSURE COLUMN TYPES
     cur.execute("""
-        ALTER TABLE NEODOSE_V1
+        ALTER TABLE neo_dose_mod
         ALTER COLUMN weight_kg TYPE DECIMAL(10,2)
     """)
 
     cur.execute("""
-        ALTER TABLE NEODOSE_V1
+        ALTER TABLE neo_dose_mod
         ALTER COLUMN infusion_rate TYPE DECIMAL(10,2)
     """)
 
     conn.commit()
+
     cur.close()
     conn.close()
 
@@ -61,6 +63,7 @@ create_table()
 # HOME ROUTE
 @app.route("/", methods=["GET"])
 def home():
+
     return jsonify({
         "message": "NeoDose Backend Running"
     })
@@ -78,7 +81,7 @@ def get_patients():
 
     cur.execute("""
         SELECT *
-        FROM NEODOSE_V1
+        FROM neo_dose_mod
         ORDER BY created_at DESC
     """)
 
@@ -105,7 +108,7 @@ def get_single_patient(id):
 
     cur.execute("""
         SELECT *
-        FROM NEODOSE_V1
+        FROM neo_dose_mod
         WHERE id = %s
     """, (id,))
 
@@ -115,6 +118,7 @@ def get_single_patient(id):
     conn.close()
 
     if not patient:
+
         return jsonify({
             "success": False,
             "message": "Patient not found"
@@ -141,7 +145,7 @@ def add_patient():
         cur = conn.cursor()
 
         cur.execute("""
-            INSERT INTO NEODOSE_V1 (
+            INSERT INTO neo_dose_mod (
                 patient_id,
                 medication_type,
                 antibiotics,
@@ -191,7 +195,7 @@ def update_patient(id):
     cur = conn.cursor()
 
     cur.execute("""
-        UPDATE NEODOSE_V1
+        UPDATE neo_dose_mod
         SET
             patient_id = %s,
             medication_type = %s,
@@ -217,6 +221,7 @@ def update_patient(id):
     conn.close()
 
     if not updated:
+
         return jsonify({
             "success": False,
             "message": "Patient not found"
@@ -239,7 +244,7 @@ def delete_patient(id):
     cur = conn.cursor()
 
     cur.execute("""
-        DELETE FROM NEODOSE_V1
+        DELETE FROM neo_dose_mod
         WHERE id = %s
         RETURNING *
     """, (id,))
@@ -252,6 +257,7 @@ def delete_patient(id):
     conn.close()
 
     if not deleted:
+
         return jsonify({
             "success": False,
             "message": "Patient not found"
