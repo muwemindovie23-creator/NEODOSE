@@ -6,21 +6,26 @@ import os
 
 app = Flask(__name__)
 
-# ALLOW WEBSITE ACCESS
+# ENABLE CORS
 CORS(app)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
+# =========================
 # DATABASE CONNECTION
+# =========================
 def get_connection():
+
     return psycopg2.connect(
         DATABASE_URL,
         cursor_factory=RealDictCursor
     )
 
 
+# =========================
 # CREATE TABLE
+# =========================
 def create_table():
 
     conn = get_connection()
@@ -28,26 +33,33 @@ def create_table():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS neo_dose_mod (
-            id SERIAL PRIMARY KEY,
-            patient_id VARCHAR(50) NOT NULL,
-            medication_type VARCHAR(10) NOT NULL
-                CHECK (medication_type IN ('PN', 'IV')),
-            antibiotics TEXT,
-            weight_kg DECIMAL(10,2),
-            infusion_rate DECIMAL(10,2),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+            patient_id INTEGER
+            PRIMARY KEY
+            GENERATED ALWAYS AS IDENTITY,
+
+            medication_type TEXT,
+
+            antibiotic TEXT,
+
+            prescribed_dose_mg NUMERIC,
+
+            concentration_mg_ml NUMERIC,
+
+            infusion_time_hr INTEGER,
+
+            weight_kg NUMERIC,
+
+            infusion_rate_ml_hr NUMERIC,
+
+            safety_check BOOLEAN,
+
+            device_ip INET,
+
+            prescription_ml_kg_day NUMERIC,
+
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-
-    # ENSURE COLUMN TYPES
-    cur.execute("""
-        ALTER TABLE neo_dose_mod
-        ALTER COLUMN weight_kg TYPE DECIMAL(10,2)
-    """)
-
-    cur.execute("""
-        ALTER TABLE neo_dose_mod
-        ALTER COLUMN infusion_rate TYPE DECIMAL(10,2)
     """)
 
     conn.commit()
@@ -60,7 +72,9 @@ def create_table():
 create_table()
 
 
+# =========================
 # HOME ROUTE
+# =========================
 @app.route("/", methods=["GET"])
 def home():
 
@@ -71,7 +85,6 @@ def home():
 
 # =========================
 # GET ALL PATIENTS
-# WEBSITE FETCHES FROM HERE
 # =========================
 @app.route("/patients", methods=["GET"])
 def get_patients():
@@ -82,7 +95,7 @@ def get_patients():
     cur.execute("""
         SELECT *
         FROM neo_dose_mod
-        ORDER BY created_at DESC
+        ORDER BY timestamp DESC
     """)
 
     patients = cur.fetchall()
@@ -100,8 +113,8 @@ def get_patients():
 # =========================
 # GET SINGLE PATIENT
 # =========================
-@app.route("/patients/<int:id>", methods=["GET"])
-def get_single_patient(id):
+@app.route("/patients/<int:patient_id>", methods=["GET"])
+def get_single_patient(patient_id):
 
     conn = get_connection()
     cur = conn.cursor()
@@ -109,8 +122,8 @@ def get_single_patient(id):
     cur.execute("""
         SELECT *
         FROM neo_dose_mod
-        WHERE id = %s
-    """, (id,))
+        WHERE patient_id = %s
+    """, (patient_id,))
 
     patient = cur.fetchone()
 
@@ -132,7 +145,6 @@ def get_single_patient(id):
 
 # =========================
 # ADD PATIENT
-# ESP32 SENDS DATA HERE
 # =========================
 @app.route("/patients", methods=["POST"])
 def add_patient():
@@ -146,20 +158,36 @@ def add_patient():
 
         cur.execute("""
             INSERT INTO neo_dose_mod (
-                patient_id,
+
                 medication_type,
-                antibiotics,
+                antibiotic,
+                prescribed_dose_mg,
+                concentration_mg_ml,
+                infusion_time_hr,
                 weight_kg,
-                infusion_rate
+                infusion_rate_ml_hr,
+                safety_check,
+                device_ip,
+                prescription_ml_kg_day
+
             )
-            VALUES (%s, %s, %s, %s, %s)
+
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+
             RETURNING *
         """, (
-            data["patient_id"],
+
             data["medication_type"],
-            data["antibiotics"],
+            data["antibiotic"],
+            data["prescribed_dose_mg"],
+            data["concentration_mg_ml"],
+            data["infusion_time_hr"],
             data["weight_kg"],
-            data["infusion_rate"]
+            data["infusion_rate_ml_hr"],
+            data["safety_check"],
+            data["device_ip"],
+            data["prescription_ml_kg_day"]
+
         ))
 
         new_patient = cur.fetchone()
@@ -186,90 +214,129 @@ def add_patient():
 # =========================
 # UPDATE PATIENT
 # =========================
-@app.route("/patients/<int:id>", methods=["PUT"])
-def update_patient(id):
+@app.route("/patients/<int:patient_id>", methods=["PUT"])
+def update_patient(patient_id):
 
     data = request.get_json()
 
-    conn = get_connection()
-    cur = conn.cursor()
+    try:
 
-    cur.execute("""
-        UPDATE neo_dose_mod
-        SET
-            patient_id = %s,
-            medication_type = %s,
-            antibiotics = %s,
-            weight_kg = %s,
-            infusion_rate = %s
-        WHERE id = %s
-        RETURNING *
-    """, (
-        data["patient_id"],
-        data["medication_type"],
-        data["antibiotics"],
-        data["weight_kg"],
-        data["infusion_rate"],
-        id
-    ))
+        conn = get_connection()
+        cur = conn.cursor()
 
-    updated = cur.fetchone()
+        cur.execute("""
+            UPDATE neo_dose_mod
 
-    conn.commit()
+            SET
+                medication_type = %s,
+                antibiotic = %s,
+                prescribed_dose_mg = %s,
+                concentration_mg_ml = %s,
+                infusion_time_hr = %s,
+                weight_kg = %s,
+                infusion_rate_ml_hr = %s,
+                safety_check = %s,
+                device_ip = %s,
+                prescription_ml_kg_day = %s
 
-    cur.close()
-    conn.close()
+            WHERE patient_id = %s
 
-    if not updated:
+            RETURNING *
+        """, (
+
+            data["medication_type"],
+            data["antibiotic"],
+            data["prescribed_dose_mg"],
+            data["concentration_mg_ml"],
+            data["infusion_time_hr"],
+            data["weight_kg"],
+            data["infusion_rate_ml_hr"],
+            data["safety_check"],
+            data["device_ip"],
+            data["prescription_ml_kg_day"],
+            patient_id
+
+        ))
+
+        updated = cur.fetchone()
+
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        if not updated:
+
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "Patient updated successfully",
+            "patient": updated
+        })
+
+    except Exception as e:
 
         return jsonify({
             "success": False,
-            "message": "Patient not found"
-        }), 404
-
-    return jsonify({
-        "success": True,
-        "message": "Patient updated successfully",
-        "patient": updated
-    })
+            "error": str(e)
+        }), 500
 
 
 # =========================
 # DELETE PATIENT
 # =========================
-@app.route("/patients/<int:id>", methods=["DELETE"])
-def delete_patient(id):
+@app.route("/patients/<int:patient_id>", methods=["DELETE"])
+def delete_patient(patient_id):
 
-    conn = get_connection()
-    cur = conn.cursor()
+    try:
 
-    cur.execute("""
-        DELETE FROM neo_dose_mod
-        WHERE id = %s
-        RETURNING *
-    """, (id,))
+        conn = get_connection()
+        cur = conn.cursor()
 
-    deleted = cur.fetchone()
+        cur.execute("""
+            DELETE FROM neo_dose_mod
+            WHERE patient_id = %s
+            RETURNING *
+        """, (patient_id,))
 
-    conn.commit()
+        deleted = cur.fetchone()
 
-    cur.close()
-    conn.close()
+        conn.commit()
 
-    if not deleted:
+        cur.close()
+        conn.close()
+
+        if not deleted:
+
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "Patient deleted successfully",
+            "patient": deleted
+        })
+
+    except Exception as e:
 
         return jsonify({
             "success": False,
-            "message": "Patient not found"
-        }), 404
-
-    return jsonify({
-        "success": True,
-        "message": "Patient deleted successfully",
-        "patient": deleted
-    })
+            "error": str(e)
+        }), 500
 
 
+# =========================
 # RUN SERVER
+# =========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+
+    app.run(
+        host="0.0.0.0",
+        port=5000
+    )
